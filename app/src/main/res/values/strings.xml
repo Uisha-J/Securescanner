@@ -1,0 +1,5 @@
+<resources>
+    <string name="app_name">Securescanner</string>
+    <string name="accessibility_service_description">피싱이 의심되는 화면을 감지하고 사용자에게 경고를 표시합니다.</string>
+
+</resources>
