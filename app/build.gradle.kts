@@ -6,12 +6,12 @@ plugins {
 
 android {
     namespace = "com.example.securescanner"
-    compileSdk = 34 // compileSdk 36은 아직 릴리즈되지 않았으므로 안정적인 34로 변경합니다.
+    compileSdk = 36
 
     defaultConfig {
         applicationId = "com.example.securescanner"
         minSdk = 26
-        targetSdk = 34 // targetSdk도 compileSdk와 맞춥니다.
+        targetSdk = 35
         versionCode = 1
         versionName = "1.0"
 
