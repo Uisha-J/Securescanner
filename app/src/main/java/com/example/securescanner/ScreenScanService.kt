@@ -16,12 +16,18 @@ import android.view.Gravity
 import android.view.LayoutInflater
 import android.view.MotionEvent
 import android.view.View
+import android.view.ViewConfiguration
 import android.view.WindowManager
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
 import android.widget.ImageButton
 import android.widget.Toast
 import androidx.core.app.NotificationCompat
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
+import java.util.Locale
 import kotlin.math.abs
 
 class ScreenScanService : AccessibilityService() {
@@ -29,12 +35,44 @@ class ScreenScanService : AccessibilityService() {
     private lateinit var windowManager: WindowManager
     private lateinit var floatingButtonView: View
     private lateinit var params: WindowManager.LayoutParams
+    private val handler = Handler(Looper.getMainLooper())
+    private val serviceScope = CoroutineScope(Dispatchers.Main + SupervisorJob())
+    private var keywordList: List<Keyword> = emptyList()
 
     override fun onServiceConnected() {
         super.onServiceConnected()
         windowManager = getSystemService(WINDOW_SERVICE) as WindowManager
         createFloatingButton()
         startForegroundService()
+        loadKeywordsFromDatabase()
+    }
+
+    private fun loadKeywordsFromDatabase() {
+        serviceScope.launch(Dispatchers.IO) {
+            try {
+                val dao = AppDatabase.getDatabase(applicationContext).keywordDao()
+                val loadedKeywords = dao.getAllKeywords()
+                if (loadedKeywords.isEmpty()) {
+                    initializeDefaultKeywords(dao)
+                } else {
+                    keywordList = loadedKeywords
+                    Log.d("ScreenScanService", "${keywordList.size}개의 키워드를 DB에서 로드했습니다.")
+                }
+            } catch (e: Exception) {
+                Log.e("ScreenScanService", "데이터베이스 로드 실패", e)
+            }
+        }
+    }
+
+    private suspend fun initializeDefaultKeywords(dao: KeywordDao) {
+        Log.d("ScreenScanService", "DB가 비어있어 기본 키워드를 추가합니다.")
+        dao.insert(Keyword(word = "bit.ly", type = "URL"))
+        dao.insert(Keyword(word = "flic.kr", type = "URL"))
+        dao.insert(Keyword(word = "캄보디아", type = "RISK"))
+        dao.insert(Keyword(word = "출국", type = "RISK"))
+        dao.insert(Keyword(word = "고수익", type = "RISK"))
+        keywordList = dao.getAllKeywords()
+        Log.d("ScreenScanService", "${keywordList.size}개의 키워드를 DB에서 로드했습니다.")
     }
 
     private fun startForegroundService() {
@@ -57,59 +95,44 @@ class ScreenScanService : AccessibilityService() {
     @SuppressLint("ClickableViewAccessibility", "InflateParams")
     private fun createFloatingButton() {
         floatingButtonView = LayoutInflater.from(this).inflate(R.layout.floating_button, null)
-
         params = WindowManager.LayoutParams(
             WindowManager.LayoutParams.WRAP_CONTENT,
             WindowManager.LayoutParams.WRAP_CONTENT,
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
-            } else {
-                @Suppress("DEPRECATION")
-                WindowManager.LayoutParams.TYPE_PHONE
-            },
-            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
+            else @Suppress("DEPRECATION") WindowManager.LayoutParams.TYPE_PHONE,
+            WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or WindowManager.LayoutParams.FLAG_WATCH_OUTSIDE_TOUCH,
             PixelFormat.TRANSLUCENT
         )
-
         params.gravity = Gravity.TOP or Gravity.START
         params.x = 100
         params.y = 100
 
         val button = floatingButtonView.findViewById<ImageButton>(R.id.floating_button)
-
-        // --- [최종 검증된 표준 로직: performClick() 사용] ---
-
-        // 1. 클릭 시 할 일은 여기에만 정의합니다.
-        button.setOnClickListener {
-            Log.d("FinalClickTest", "클릭 성공! 화면 스캔을 시작합니다.")
-            Handler(Looper.getMainLooper()).post {
-                Toast.makeText(this@ScreenScanService, "화면 스캔을 시작합니다...", Toast.LENGTH_SHORT).show()
-            }
-            scanCurrentScreen()
-        }
-
-        // 2. 터치 이벤트는 드래그와 클릭을 구분하여, 클릭일 경우 performClick()을 호출합니다.
         button.setOnTouchListener(object : View.OnTouchListener {
             private var initialX: Int = 0
             private var initialY: Int = 0
             private var initialTouchX: Float = 0f
             private var initialTouchY: Float = 0f
             private var isMoved = false
+            private var downTime: Long = 0
+            private val touchSlop = ViewConfiguration.get(this@ScreenScanService).scaledTouchSlop
 
             override fun onTouch(v: View, event: MotionEvent): Boolean {
                 when (event.action) {
                     MotionEvent.ACTION_DOWN -> {
                         isMoved = false
+                        downTime = System.currentTimeMillis()
                         initialX = params.x
                         initialY = params.y
                         initialTouchX = event.rawX
                         initialTouchY = event.rawY
-                        return true // 이벤트를 계속 처리하기 위해 true를 반환합니다.
+                        return true
                     }
                     MotionEvent.ACTION_MOVE -> {
-                        // 손가락이 미세한 움직임(10픽셀) 이상 움직였을 때만 드래그로 간주
-                        if (abs(event.rawX - initialTouchX) > 10 || abs(event.rawY - initialTouchY) > 10) {
+                        if (!isMoved && (abs(event.rawX - initialTouchX) > touchSlop || abs(event.rawY - initialTouchY) > touchSlop)) {
                             isMoved = true
+                        }
+                        if (isMoved) {
                             params.x = initialX + (event.rawX - initialTouchX).toInt()
                             params.y = initialY + (event.rawY - initialTouchY).toInt()
                             windowManager.updateViewLayout(floatingButtonView, params)
@@ -117,9 +140,9 @@ class ScreenScanService : AccessibilityService() {
                         return true
                     }
                     MotionEvent.ACTION_UP -> {
-                        // 드래그가 아니었을 경우에만 '클릭'을 실행하라고 시스템에 알림
-                        if (!isMoved) {
-                            v.performClick()
+                        val isClick = !isMoved && (System.currentTimeMillis() - downTime < ViewConfiguration.getLongPressTimeout())
+                        if (isClick) {
+                            performClickAction()
                         }
                         return true
                     }
@@ -127,53 +150,70 @@ class ScreenScanService : AccessibilityService() {
                 return false
             }
         })
-
         windowManager.addView(floatingButtonView, params)
     }
 
-    // --- (scanCurrentScreen 및 나머지 코드는 이전과 동일합니다) ---
+    private fun performClickAction() {
+        handler.post { Toast.makeText(this@ScreenScanService, "화면 스캔을 시작합니다...", Toast.LENGTH_SHORT).show() }
+        handler.postDelayed({ scanCurrentScreen() }, 300)
+    }
+
     private fun scanCurrentScreen() {
         val rootNode: AccessibilityNodeInfo? = rootInActiveWindow
         if (rootNode == null) {
-            Handler(Looper.getMainLooper()).post {
-                Toast.makeText(this, "화면 정보를 아직 가져올 수 없습니다.", Toast.LENGTH_SHORT).show()
-            }
+            handler.post { Toast.makeText(this, "화면 정보를 아직 가져올 수 없습니다. 잠시 후 다시 시도해주세요.", Toast.LENGTH_SHORT).show() }
             return
         }
         val foundKeywords = mutableListOf<String>()
         findTextNodes(rootNode, foundKeywords)
-        Handler(Looper.getMainLooper()).post {
+        handler.post {
             if (foundKeywords.isEmpty()) {
                 Toast.makeText(this, "의심스러운 내용을 찾지 못했습니다.", Toast.LENGTH_SHORT).show()
             } else {
-                val resultText = "위험 의심 단어 발견: ${foundKeywords.joinToString(", ")}"
+                val resultText = "위험 의심 단어 발견:\n${foundKeywords.joinToString(separator = "\n")}"
                 Toast.makeText(this, resultText, Toast.LENGTH_LONG).show()
             }
         }
         rootNode.recycle()
     }
 
+    // --- [중요] 스캔 로직 최종 수정 ---
     private fun findTextNodes(node: AccessibilityNodeInfo, foundList: MutableList<String>) {
+        // 1. node.text 확인
         if (node.text != null && node.text.isNotEmpty()) {
-            val text = node.text.toString().lowercase()
-            if (text.contains("bit.ly") || text.contains("flic.kr")) {
-                foundList.add("단축 URL ($text)")
-            }
-            if (text.contains("캄보디아") || text.contains("출국") || text.contains("고수익")) {
-                foundList.add("위험 키워드 ($text)")
-            }
+            checkForKeywords(node.text.toString(), foundList)
         }
+
+        // 2. node.contentDescription 확인 (정확도 향상)
+        if (node.contentDescription != null && node.contentDescription.isNotEmpty()) {
+            checkForKeywords(node.contentDescription.toString(), foundList)
+        }
+
+        // 3. 자식 노드 재귀 순회
         for (i in 0 until node.childCount) {
-            val child = node.getChild(i)
-            child?.let {
+            node.getChild(i)?.let {
                 findTextNodes(it, foundList)
-                it.recycle()
+                // 중요: it.recycle() 호출을 제거하여 오류 방지
             }
         }
     }
 
+    private fun checkForKeywords(text: String, foundList: MutableList<String>) {
+        val lowerCaseText = text.lowercase(Locale.getDefault())
+        for (keyword in keywordList) {
+            if (lowerCaseText.contains(keyword.word.lowercase(Locale.getDefault()))) {
+                val foundItem = "발견된 키워드 '${keyword.word}' (원본: $text)"
+                if (!foundList.contains(foundItem)) {
+                    foundList.add(foundItem)
+                }
+            }
+        }
+    }
+    // ---
+
     override fun onDestroy() {
         super.onDestroy()
+        handler.removeCallbacksAndMessages(null)
         if (::floatingButtonView.isInitialized) {
             windowManager.removeView(floatingButtonView)
         }
@@ -182,3 +222,4 @@ class ScreenScanService : AccessibilityService() {
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {}
     override fun onInterrupt() {}
 }
+    
