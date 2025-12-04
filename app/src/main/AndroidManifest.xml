@@ -10,6 +10,13 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
 
+    <!-- 인터넷 권한 (API 통신용) -->
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+
+    <!-- 화면 캡처 권한 -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION" />
+
     <application
         android:allowBackup="true"
         android:icon="@mipmap/ic_launcher"
@@ -28,18 +35,21 @@
             </intent-filter>
         </activity>
 
+        <!-- Warning Activity for displaying keyword detection alerts -->
+        <activity
+            android:name=".WarningActivity"
+            android:exported="false"
+            android:theme="@style/Theme.AppCompat.Light.NoActionBar"
+            android:excludeFromRecents="true"
+            android:launchMode="singleTop" />
+
         <!-- ScreenScanService 선언 시작 -->
         <service
             android:name=".ScreenScanService"
             android:exported="false"
             android:label="화면 분석 서비스"
             android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE"
-            android:foregroundServiceType="specialUse">
-
-            <!-- Android 14+ 'specialUse' 타입에 대한 정당성 사유 명시 -->
-            <property
-                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
-                android:value="다른 앱 위에 플로팅 버튼을 표시하여 사용자가 원할 때 즉시 화면을 분석할 수 있도록 하기 위함" />
+            android:foregroundServiceType="mediaProjection|specialUse">
 
             <!-- 서비스는 이 두 가지 설정을 내부에 포함해야 합니다 -->
             <intent-filter>

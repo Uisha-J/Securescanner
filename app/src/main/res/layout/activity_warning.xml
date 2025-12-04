@@ -1,0 +1,81 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:padding="24dp"
+    android:background="#FFEBEE"
+    android:gravity="center">
+
+    <!-- Warning Icon -->
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="⚠️"
+        android:textSize="64sp"
+        android:layout_marginBottom="16dp"/>
+
+    <!-- Warning Title -->
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="위험 키워드 감지!"
+        android:textSize="24sp"
+        android:textStyle="bold"
+        android:textColor="#C62828"
+        android:layout_marginBottom="8dp"/>
+
+    <!-- Warning Message -->
+    <TextView
+        android:id="@+id/warning_message"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="다음 키워드가 화면에서 발견되었습니다:"
+        android:textSize="16sp"
+        android:textColor="#424242"
+        android:layout_marginBottom="16dp"
+        android:gravity="center"/>
+
+    <!-- Detected Keywords -->
+    <ScrollView
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:layout_marginBottom="16dp">
+
+        <TextView
+            android:id="@+id/warning_keywords"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text=""
+            android:textSize="18sp"
+            android:textStyle="bold"
+            android:textColor="#D32F2F"
+            android:gravity="center"
+            android:padding="16dp"
+            android:background="#FFFFFF"
+            android:lineSpacingExtra="8dp"/>
+    </ScrollView>
+
+    <!-- Warning Advice -->
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="피싱, 스캠, 또는 악성 콘텐츠일 수 있습니다.\n신중하게 확인하세요!"
+        android:textSize="14sp"
+        android:textColor="#616161"
+        android:gravity="center"
+        android:layout_marginBottom="24dp"/>
+
+    <!-- Close Button -->
+    <Button
+        android:id="@+id/btn_close_warning"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="확인"
+        android:textSize="18sp"
+        android:backgroundTint="#D32F2F"
+        android:textColor="#FFFFFF"
+        android:padding="16dp"/>
+
+</LinearLayout>

@@ -6,6 +6,7 @@ import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.content.Context
+import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.graphics.PixelFormat
 import android.os.Build
@@ -19,7 +20,6 @@ import android.view.View
 import android.view.ViewConfiguration
 import android.view.WindowManager
 import android.view.accessibility.AccessibilityEvent
-import android.view.accessibility.AccessibilityNodeInfo
 import android.widget.ImageButton
 import android.widget.Toast
 import androidx.core.app.NotificationCompat
@@ -39,12 +39,20 @@ class ScreenScanService : AccessibilityService() {
     private val serviceScope = CoroutineScope(Dispatchers.Main + SupervisorJob())
     private var keywordList: List<Keyword> = emptyList()
 
+    // OCR Manager
+    private var screenCaptureManager: ScreenCaptureManager? = null
+
     override fun onServiceConnected() {
         super.onServiceConnected()
         windowManager = getSystemService(WINDOW_SERVICE) as WindowManager
         createFloatingButton()
         startForegroundService()
         loadKeywordsFromDatabase()
+
+        // Initialize ScreenCaptureManager
+        screenCaptureManager = ScreenCaptureManager(applicationContext)
+
+        Log.d("ScreenScanService", "Service connected. OCR mode enabled.")
     }
 
     private fun loadKeywordsFromDatabase() {
@@ -56,23 +64,40 @@ class ScreenScanService : AccessibilityService() {
                     initializeDefaultKeywords(dao)
                 } else {
                     keywordList = loadedKeywords
-                    Log.d("ScreenScanService", "${keywordList.size}개의 키워드를 DB에서 로드했습니다.")
+                    Log.d("ScreenScanService", "Loaded ${keywordList.size} keywords from DB.")
                 }
             } catch (e: Exception) {
-                Log.e("ScreenScanService", "데이터베이스 로드 실패", e)
+                Log.e("ScreenScanService", "Database load failed", e)
             }
         }
     }
 
     private suspend fun initializeDefaultKeywords(dao: KeywordDao) {
-        Log.d("ScreenScanService", "DB가 비어있어 기본 키워드를 추가합니다.")
-        dao.insert(Keyword(word = "bit.ly", type = "URL"))
-        dao.insert(Keyword(word = "flic.kr", type = "URL"))
-        dao.insert(Keyword(word = "캄보디아", type = "RISK"))
-        dao.insert(Keyword(word = "출국", type = "RISK"))
-        dao.insert(Keyword(word = "고수익", type = "RISK"))
+        Log.d("ScreenScanService", "DB is empty, initializing keyword database...")
+
+        val urlKeywords = listOf(
+            Keyword(word = "bit.ly", type = "URL", category = "url_shortener", riskLevel = 4, source = "default"),
+            Keyword(word = "tinyurl.com", type = "URL", category = "url_shortener", riskLevel = 4, source = "default")
+        )
+
+        val jobScamKeywords = listOf(
+            Keyword(word = "캄보디아", type = "RISK", category = "job_scam", riskLevel = 5, source = "default"),
+            Keyword(word = "고수익", type = "RISK", category = "job_scam", riskLevel = 5, source = "default"),
+            Keyword(word = "월 2000만원", type = "RISK", category = "job_scam", riskLevel = 5, source = "default"),
+            Keyword(word = "출국", type = "RISK", category = "job_scam", riskLevel = 4, source = "default")
+        )
+
+        val voicePhishingKeywords = listOf(
+            Keyword(word = "금융감독원", type = "RISK", category = "voice_phishing", riskLevel = 5, source = "default"),
+            Keyword(word = "검찰청", type = "RISK", category = "voice_phishing", riskLevel = 5, source = "default"),
+            Keyword(word = "당첨", type = "RISK", category = "voice_phishing", riskLevel = 4, source = "default")
+        )
+
+        val allKeywords = urlKeywords + jobScamKeywords + voicePhishingKeywords
+        dao.insertAll(allKeywords)
+
         keywordList = dao.getAllKeywords()
-        Log.d("ScreenScanService", "${keywordList.size}개의 키워드를 DB에서 로드했습니다.")
+        Log.d("ScreenScanService", "Loaded ${keywordList.size} keywords from DB.")
     }
 
     private fun startForegroundService() {
@@ -82,13 +107,34 @@ class ScreenScanService : AccessibilityService() {
             (getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager).createNotificationChannel(channel)
         }
         val notification: Notification = NotificationCompat.Builder(this, channelId)
-            .setContentTitle("서비스 실행 중")
+            .setContentTitle("SecureScanner 실행 중")
+            .setContentText("화면 스캔 준비됨")
             .setSmallIcon(R.mipmap.ic_launcher)
             .build()
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
-            startForeground(1, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE)
-        } else {
-            startForeground(1, notification)
+
+        // Start with specialUse only - mediaProjection type requires screen capture permission first
+        when {
+            Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE -> {
+                // Android 14+: Start with specialUse only (for floating button functionality)
+                // mediaProjection type will be added later when permission is granted
+                startForeground(
+                    1,
+                    notification,
+                    ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE
+                )
+                Log.d("ScreenScanService", "Started foreground with SPECIAL_USE type")
+            }
+            Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q -> {
+                // Android 10-13: Start without specific type initially
+                // Will add mediaProjection type after permission is granted
+                startForeground(1, notification)
+                Log.d("ScreenScanService", "Started foreground without type (will add later)")
+            }
+            else -> {
+                // Android 9 and below: No type specification needed
+                startForeground(1, notification)
+                Log.d("ScreenScanService", "Started foreground (pre-Q)")
+            }
         }
     }
 
@@ -154,46 +200,69 @@ class ScreenScanService : AccessibilityService() {
     }
 
     private fun performClickAction() {
-        handler.post { Toast.makeText(this@ScreenScanService, "화면 스캔을 시작합니다...", Toast.LENGTH_SHORT).show() }
-        handler.postDelayed({ scanCurrentScreen() }, 300)
-    }
+        val isReady = MediaProjectionHolder.isReady()
+        val projectionExists = MediaProjectionHolder.mediaProjection != null
 
-    private fun scanCurrentScreen() {
-        val rootNode: AccessibilityNodeInfo? = rootInActiveWindow
-        if (rootNode == null) {
-            handler.post { Toast.makeText(this, "화면 정보를 아직 가져올 수 없습니다. 잠시 후 다시 시도해주세요.", Toast.LENGTH_SHORT).show() }
+        Log.d("ScreenScanService", "=== Button Click Debug ===")
+        Log.d("ScreenScanService", "MediaProjectionHolder.isReady() = $isReady")
+        Log.d("ScreenScanService", "MediaProjection exists = $projectionExists")
+        Log.d("ScreenScanService", "ScreenCaptureManager = ${screenCaptureManager != null}")
+
+        if (!isReady) {
+            Log.w("ScreenScanService", "Screen capture permission not granted yet")
+            handler.post {
+                Toast.makeText(this, "화면 캡처 권한을 설정해주세요.", Toast.LENGTH_SHORT).show()
+            }
+            handler.postDelayed({
+                val intent = Intent(this, MainActivity::class.java).apply {
+                    flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+                    putExtra("request_screen_capture", true)
+                }
+                startActivity(intent)
+            }, 500)
             return
         }
-        val foundKeywords = mutableListOf<String>()
-        findTextNodes(rootNode, foundKeywords)
+
+        Log.d("ScreenScanService", "Starting screen scan...")
         handler.post {
-            if (foundKeywords.isEmpty()) {
-                Toast.makeText(this, "의심스러운 내용을 찾지 못했습니다.", Toast.LENGTH_SHORT).show()
-            } else {
-                val resultText = "위험 의심 단어 발견:\n${foundKeywords.joinToString(separator = "\n")}"
-                Toast.makeText(this, resultText, Toast.LENGTH_LONG).show()
-            }
+            Toast.makeText(this@ScreenScanService, "화면 스캔을 시작합니다...", Toast.LENGTH_SHORT).show()
         }
-        rootNode.recycle()
+        handler.postDelayed({ scanCurrentScreenWithOCR() }, 300)
     }
 
-    // --- [중요] 스캔 로직 최종 수정 ---
-    private fun findTextNodes(node: AccessibilityNodeInfo, foundList: MutableList<String>) {
-        // 1. node.text 확인
-        if (node.text != null && node.text.isNotEmpty()) {
-            checkForKeywords(node.text.toString(), foundList)
-        }
+    private fun scanCurrentScreenWithOCR() {
+        Log.d("ScreenScanService", "Starting OCR scan...")
 
-        // 2. node.contentDescription 확인 (정확도 향상)
-        if (node.contentDescription != null && node.contentDescription.isNotEmpty()) {
-            checkForKeywords(node.contentDescription.toString(), foundList)
-        }
+        serviceScope.launch(Dispatchers.IO) {
+            try {
+                val extractedTexts = screenCaptureManager?.captureAndExtractText() ?: emptyList()
 
-        // 3. 자식 노드 재귀 순회
-        for (i in 0 until node.childCount) {
-            node.getChild(i)?.let {
-                findTextNodes(it, foundList)
-                // 중요: it.recycle() 호출을 제거하여 오류 방지
+                Log.d("ScreenScanService", "OCR extracted ${extractedTexts.size} text items")
+
+                val foundKeywords = mutableListOf<String>()
+                for (text in extractedTexts) {
+                    checkForKeywords(text, foundKeywords)
+                }
+
+                handler.post {
+                    if (foundKeywords.isEmpty()) {
+                        Toast.makeText(this@ScreenScanService, "의심스러운 내용을 찾지 못했습니다.", Toast.LENGTH_SHORT).show()
+                    } else {
+                        val uniqueKeywords = foundKeywords.distinct()
+
+                        Log.d("ScreenScanService", "Found suspicious keywords: $uniqueKeywords")
+
+                        // Launch WarningActivity to show alert (instead of Toast)
+                        // This works reliably even when MediaProjection is active
+                        launchWarningActivity(ArrayList(uniqueKeywords))
+                    }
+                }
+
+            } catch (e: Exception) {
+                Log.e("ScreenScanService", "OCR scan failed: ${e.message}", e)
+                handler.post {
+                    Toast.makeText(this@ScreenScanService, "스캔 중 오류가 발생했습니다.", Toast.LENGTH_SHORT).show()
+                }
             }
         }
     }
@@ -202,14 +271,35 @@ class ScreenScanService : AccessibilityService() {
         val lowerCaseText = text.lowercase(Locale.getDefault())
         for (keyword in keywordList) {
             if (lowerCaseText.contains(keyword.word.lowercase(Locale.getDefault()))) {
-                val foundItem = "발견된 키워드 '${keyword.word}' (원본: $text)"
+                // Format as "category|word" so WarningActivity can parse and localize
+                val foundItem = "${keyword.category}|${keyword.word}"
                 if (!foundList.contains(foundItem)) {
                     foundList.add(foundItem)
+                    Log.d("ScreenScanService", "Keyword matched: ${keyword.word} (${keyword.category})")
                 }
             }
         }
     }
-    // ---
+
+    /**
+     * Launch WarningActivity to display detected keywords
+     * This works reliably even when MediaProjection or overlays are active
+     */
+    private fun launchWarningActivity(keywords: ArrayList<String>) {
+        try {
+            val intent = Intent(this, WarningActivity::class.java).apply {
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+                putStringArrayListExtra(WarningActivity.EXTRA_KEYWORDS, keywords)
+                putExtra(WarningActivity.EXTRA_KEYWORD_COUNT, keywords.size)
+            }
+            startActivity(intent)
+            Log.d("ScreenScanService", "Launched WarningActivity with ${keywords.size} keywords")
+        } catch (e: Exception) {
+            Log.e("ScreenScanService", "Failed to launch WarningActivity: ${e.message}", e)
+            // Fallback to Toast if activity launch fails
+            Toast.makeText(this, "위험 키워드 ${keywords.size}개 발견!", Toast.LENGTH_LONG).show()
+        }
+    }
 
     override fun onDestroy() {
         super.onDestroy()
@@ -217,9 +307,101 @@ class ScreenScanService : AccessibilityService() {
         if (::floatingButtonView.isInitialized) {
             windowManager.removeView(floatingButtonView)
         }
+        screenCaptureManager?.stop()
+        Log.d("ScreenScanService", "Service destroyed")
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {}
     override fun onInterrupt() {}
+
+    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        Log.d("ScreenScanService", "onStartCommand called")
+
+        when (intent?.action) {
+            ACTION_SCREEN_CAPTURE_READY -> {
+                Log.d("ScreenScanService", "=== SCREEN_CAPTURE_READY Received ===")
+
+                // Update notification to show screen capture is ready
+                val notification = createNotification()
+
+                try {
+                    when {
+                        Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE -> {
+                            // Android 14+: Use both types (must match initial declaration)
+                            startForeground(
+                                NOTIFICATION_ID,
+                                notification,
+                                ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE or ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION
+                            )
+                            Log.d("ScreenScanService", "Notification updated with both service types")
+                        }
+                        Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q -> {
+                            // Android 10-13: Use only mediaProjection type (matches initial declaration)
+                            startForeground(
+                                NOTIFICATION_ID,
+                                notification,
+                                ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION
+                            )
+                            Log.d("ScreenScanService", "Notification updated with mediaProjection type")
+                        }
+                        else -> {
+                            // Android 9 and below: No type specification
+                            startForeground(NOTIFICATION_ID, notification)
+                            Log.d("ScreenScanService", "Notification updated (pre-Q)")
+                        }
+                    }
+                } catch (e: Exception) {
+                    Log.e("ScreenScanService", "Failed to update notification", e)
+                }
+
+                // Wait a moment for MediaProjection to be stored
+                Handler(Looper.getMainLooper()).postDelayed({
+                    if (MediaProjectionHolder.isReady()) {
+                        Log.d("ScreenScanService", "Screen capture ready")
+                        handler.post {
+                            Toast.makeText(this, "화면 캡처 준비 완료.", Toast.LENGTH_SHORT).show()
+                        }
+                    } else {
+                        Log.w("ScreenScanService", "MediaProjection not ready yet")
+                    }
+                }, 1000)
+            }
+            else -> {
+                Log.d("ScreenScanService", "Service started normally")
+            }
+        }
+
+        return START_STICKY
+    }
+
+    // Create notification for MEDIA_PROJECTION foreground service
+    private fun createNotification(): Notification {
+        val channelId = "screen_capture_service_channel"
+        val channelName = "Screen Capture Service"
+
+        // Android 8.0+ requires notification channel
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val channel = NotificationChannel(
+                channelId,
+                channelName,
+                NotificationManager.IMPORTANCE_LOW
+            )
+            val manager = getSystemService(NotificationManager::class.java)
+            manager.createNotificationChannel(channel)
+        }
+
+        return NotificationCompat.Builder(this, channelId)
+            .setContentTitle("SecureScanner 화면 캡처 활성화")
+            .setContentText("화면 스캔 준비 완료. 플로팅 버튼을 눌러 검사하세요.")
+            .setSmallIcon(R.mipmap.ic_launcher)
+            .setPriority(NotificationCompat.PRIORITY_LOW)
+            .setOngoing(true)
+            .build()
+    }
+
+    companion object {
+        const val ACTION_SCREEN_CAPTURE_READY = "com.example.securescanner.SCREEN_CAPTURE_READY"
+        const val EXTRA_RESULT_CODE = "EXTRA_RESULT_CODE"
+        private const val NOTIFICATION_ID = 1001
+    }
 }
-    

@@ -5,7 +5,7 @@ import androidx.room.Database
 import androidx.room.Room
 import androidx.room.RoomDatabase
 
-@Database(entities = [Keyword::class], version = 1, exportSchema = false)
+@Database(entities = [Keyword::class], version = 2, exportSchema = false)  // Version changed to 2
 abstract class AppDatabase : RoomDatabase() {
 
     abstract fun keywordDao(): KeywordDao
@@ -21,7 +21,7 @@ abstract class AppDatabase : RoomDatabase() {
                     AppDatabase::class.java,
                     "keyword_database"
                 )
-                    .fallbackToDestructiveMigration()
+                    .fallbackToDestructiveMigration()  // This will delete old data and recreate
                     .build()
                 INSTANCE = instance
                 instance
