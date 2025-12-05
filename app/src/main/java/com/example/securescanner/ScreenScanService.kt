@@ -39,8 +39,31 @@ class ScreenScanService : AccessibilityService() {
     private val serviceScope = CoroutineScope(Dispatchers.Main + SupervisorJob())
     private var keywordList: List<Keyword> = emptyList()
 
-    // OCR Manager
+    // OCR 매니저
     private var screenCaptureManager: ScreenCaptureManager? = null
+
+    // Gemini AI 분석기
+    private val geminiAnalyzer = GeminiAnalyzer()
+
+    // 내부 UI 메시지 필터 (OCR에서 추출된 자체 앱 메시지 제외)
+    private val internalMessages = setOf(
+        "화면 스캔을 시작합니다",
+        "화면 스캔을 시작합니다...",
+        "AI 분석 중",
+        "AI 분석 중...",
+        "화면 캡처 권한을 설정해주세요",
+        "화면 캡처 권한을 설정해주세요.",
+        "화면 캡처 준비 완료",
+        "화면 캡처 준비 완료.",
+        "의심스러운 내용을 찾지 못했습니다",
+        "의심스러운 내용을 찾지 못했습니다.",
+        "스캔 중 오류가 발생했습니다",
+        "스캔 중 오류가 발생했습니다.",
+        "SecureScanner 실행 중",
+        "화면 스캔 준비됨",
+        "SecureScanner 화면 캡처 활성화",
+        "화면 스캔 준비 완료. 플로팅 버튼을 눌러 검사하세요."
+    )
 
     override fun onServiceConnected() {
         super.onServiceConnected()
@@ -49,10 +72,15 @@ class ScreenScanService : AccessibilityService() {
         startForegroundService()
         loadKeywordsFromDatabase()
 
-        // Initialize ScreenCaptureManager
+        // ScreenCaptureManager 초기화
         screenCaptureManager = ScreenCaptureManager(applicationContext)
 
-        Log.d("ScreenScanService", "Service connected. OCR mode enabled.")
+        // Firebase AI Logic SDK 사용 - API 키는 Firebase Console에서 관리됩니다
+        // 설정 방법:
+        // 1. Firebase Console에서 Gemini Developer API 활성화
+        // 2. google-services.json이 프로젝트에 포함되어 있는지 확인
+        Log.d("ScreenScanService", "Service connected. OCR mode enabled with Firebase AI Logic.")
+        Log.d("ScreenScanService", "Gemini AI analysis available via Firebase configuration.")
     }
 
     private fun loadKeywordsFromDatabase() {
@@ -239,21 +267,44 @@ class ScreenScanService : AccessibilityService() {
 
                 Log.d("ScreenScanService", "OCR extracted ${extractedTexts.size} text items")
 
+                // 로컬 데이터베이스를 사용하여 키워드 검사 (폴백)
                 val foundKeywords = mutableListOf<String>()
                 for (text in extractedTexts) {
                     checkForKeywords(text, foundKeywords)
                 }
 
+                // 내부 메시지를 제거한 텍스트 목록 (AI 분석용)
+                val filteredTexts = filterInternalMessages(extractedTexts)
+                Log.d("ScreenScanService", "Filtered ${extractedTexts.size - filteredTexts.size} internal messages, ${filteredTexts.size} texts remain for AI")
+
+                // Gemini AI 분석 수행 (Firebase AI Logic SDK)
+                val riskAssessment = if (filteredTexts.isNotEmpty()) {
+                    try {
+                        Log.d("ScreenScanService", "Analyzing with Gemini AI (Firebase AI Logic)...")
+                        handler.post {
+                            Toast.makeText(this@ScreenScanService, "AI 분석 중...", Toast.LENGTH_SHORT).show()
+                        }
+                        geminiAnalyzer.analyzeRisk(filteredTexts)
+                    } catch (e: Exception) {
+                        Log.e("ScreenScanService", "Gemini analysis failed: ${e.message}", e)
+                        Log.e("ScreenScanService", "Ensure Gemini Developer API is enabled in Firebase Console")
+                        null
+                    }
+                } else {
+                    null
+                }
+
                 handler.post {
-                    if (foundKeywords.isEmpty()) {
+                    if (riskAssessment != null) {
+                        // AI 기반 위험도 평가 결과 표시
+                        Log.d("ScreenScanService", "AI Risk Assessment: ${riskAssessment.riskLevel}")
+                        launchWarningActivityWithAI(riskAssessment)
+                    } else if (foundKeywords.isEmpty()) {
                         Toast.makeText(this@ScreenScanService, "의심스러운 내용을 찾지 못했습니다.", Toast.LENGTH_SHORT).show()
                     } else {
+                        // 키워드 기반 경고로 폴백
                         val uniqueKeywords = foundKeywords.distinct()
-
                         Log.d("ScreenScanService", "Found suspicious keywords: $uniqueKeywords")
-
-                        // Launch WarningActivity to show alert (instead of Toast)
-                        // This works reliably even when MediaProjection is active
                         launchWarningActivity(ArrayList(uniqueKeywords))
                     }
                 }
@@ -264,6 +315,33 @@ class ScreenScanService : AccessibilityService() {
                     Toast.makeText(this@ScreenScanService, "스캔 중 오류가 발생했습니다.", Toast.LENGTH_SHORT).show()
                 }
             }
+        }
+    }
+
+    /**
+     * 내부 UI 메시지 필터링 - 앱 자체의 Toast/알림 메시지를 AI 분석 대상에서 제외
+     *
+     * OCR이 화면의 모든 텍스트를 추출하기 때문에, 앱 자체의 상태 메시지도 캡처됩니다.
+     * 이 함수는 알려진 내부 메시지를 필터링하여 AI가 자체 메시지를 피싱으로 오인하지 않도록 합니다.
+     */
+    private fun filterInternalMessages(texts: List<String>): List<String> {
+        return texts.filter { text ->
+            val trimmedText = text.trim()
+
+            // 정확히 일치하는 내부 메시지 제외
+            if (internalMessages.contains(trimmedText)) {
+                Log.d("ScreenScanService", "Filtered exact internal message: $trimmedText")
+                return@filter false
+            }
+
+            // 부분 일치 검사 (점, 마침표 등의 변형 처리)
+            val normalizedText = trimmedText.replace(Regex("[.…]+$"), "") // 끝의 점 제거
+            if (internalMessages.any { it.replace(Regex("[.…]+$"), "") == normalizedText }) {
+                Log.d("ScreenScanService", "Filtered normalized internal message: $trimmedText")
+                return@filter false
+            }
+
+            true
         }
     }
 
@@ -282,8 +360,8 @@ class ScreenScanService : AccessibilityService() {
     }
 
     /**
-     * Launch WarningActivity to display detected keywords
-     * This works reliably even when MediaProjection or overlays are active
+     * 감지된 키워드를 표시하기 위해 WarningActivity 실행
+     * MediaProjection 또는 오버레이가 활성화된 상태에서도 안정적으로 작동
      */
     private fun launchWarningActivity(keywords: ArrayList<String>) {
         try {
@@ -298,6 +376,54 @@ class ScreenScanService : AccessibilityService() {
             Log.e("ScreenScanService", "Failed to launch WarningActivity: ${e.message}", e)
             // Fallback to Toast if activity launch fails
             Toast.makeText(this, "위험 키워드 ${keywords.size}개 발견!", Toast.LENGTH_LONG).show()
+        }
+    }
+
+    /**
+     * AI 기반 위험도 평가 결과와 함께 WarningActivity 실행
+     */
+    private fun launchWarningActivityWithAI(riskAssessment: RiskAssessment) {
+        try {
+            // 영문 위험도를 한글로 매핑
+            val koreanRiskLevel = when (riskAssessment.riskLevel.uppercase()) {
+                "HIGH" -> "위험"
+                "MEDIUM" -> "주의"
+                "LOW" -> "안전"
+                else -> "주의" // 기본 폴백
+            }
+
+            // reason과 advice를 explanation으로 결합
+            val explanation = buildString {
+                if (riskAssessment.reason.isNotBlank()) {
+                    append(riskAssessment.reason)
+                }
+                if (riskAssessment.advice.isNotBlank()) {
+                    if (isNotEmpty()) append("\n\n")
+                    append(riskAssessment.advice)
+                }
+            }
+
+            val intent = Intent(this, WarningActivity::class.java).apply {
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+                putExtra(WarningActivity.EXTRA_USE_AI, true)
+                putExtra(WarningActivity.EXTRA_RISK_LEVEL, koreanRiskLevel)
+                putExtra(WarningActivity.EXTRA_EXPLANATION, explanation)
+                putStringArrayListExtra(
+                    WarningActivity.EXTRA_AI_KEYWORDS,
+                    ArrayList(riskAssessment.dangerousKeywords)
+                )
+            }
+            startActivity(intent)
+            Log.d("ScreenScanService", "Launched WarningActivity with AI assessment: $koreanRiskLevel (${riskAssessment.riskLevel})")
+        } catch (e: Exception) {
+            Log.e("ScreenScanService", "Failed to launch WarningActivity: ${e.message}", e)
+            val koreanRisk = when (riskAssessment.riskLevel.uppercase()) {
+                "HIGH" -> "위험"
+                "MEDIUM" -> "주의"
+                "LOW" -> "안전"
+                else -> "주의"
+            }
+            Toast.makeText(this, "위험도: $koreanRisk", Toast.LENGTH_LONG).show()
         }
     }
 

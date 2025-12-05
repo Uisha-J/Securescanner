@@ -2,6 +2,9 @@ plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
     id("com.google.devtools.ksp")
+
+    // Firebase Google Services plugin
+    id("com.google.gms.google-services")
 }
 
 android {
@@ -56,7 +59,7 @@ dependencies {
     implementation("com.squareup.okhttp3:logging-interceptor:4.12.0")
 
     // Coroutines (already using it, but make sure)
-    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3")
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.10.1")
 
     // Gson for JSON parsing
     implementation("com.google.code.gson:gson:2.10.1")
@@ -64,4 +67,10 @@ dependencies {
     // Google ML Kit - Text Recognition (OCR)
     implementation("com.google.mlkit:text-recognition:16.0.0")
     implementation("com.google.mlkit:text-recognition-korean:16.0.0")
+
+    // Firebase AI Logic SDK (Gemini 2.5 Flash + Search Grounding)
+    implementation(platform("com.google.firebase:firebase-bom:34.6.0"))
+    implementation("com.google.firebase:firebase-ai")
+
+    implementation("com.google.firebase:firebase-analytics")
 }

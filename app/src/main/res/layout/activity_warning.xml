@@ -1,81 +1,191 @@
 <?xml version="1.0" encoding="utf-8"?>
-<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+<androidx.constraintlayout.widget.ConstraintLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:orientation="vertical"
-    android:padding="24dp"
-    android:background="#FFEBEE"
-    android:gravity="center">
+    android:background="#F5F5F5">
 
-    <!-- Warning Icon -->
-    <TextView
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:text="⚠️"
-        android:textSize="64sp"
-        android:layout_marginBottom="16dp"/>
-
-    <!-- Warning Title -->
-    <TextView
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:text="위험 키워드 감지!"
-        android:textSize="24sp"
-        android:textStyle="bold"
-        android:textColor="#C62828"
-        android:layout_marginBottom="8dp"/>
-
-    <!-- Warning Message -->
-    <TextView
-        android:id="@+id/warning_message"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:text="다음 키워드가 화면에서 발견되었습니다:"
-        android:textSize="16sp"
-        android:textColor="#424242"
-        android:layout_marginBottom="16dp"
-        android:gravity="center"/>
-
-    <!-- Detected Keywords -->
+    <!-- Scrollable Content Area -->
     <ScrollView
+        android:id="@+id/scroll_content"
         android:layout_width="match_parent"
         android:layout_height="0dp"
-        android:layout_weight="1"
-        android:layout_marginBottom="16dp">
+        android:fillViewport="false"
+        app:layout_constraintTop_toTopOf="parent"
+        app:layout_constraintBottom_toTopOf="@id/btn_close_warning"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintEnd_toEndOf="parent">
 
-        <TextView
-            android:id="@+id/warning_keywords"
+        <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:text=""
-            android:textSize="18sp"
-            android:textStyle="bold"
-            android:textColor="#D32F2F"
+            android:orientation="vertical"
+            android:padding="20dp">
+
+        <!-- Warning Icon -->
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="⚠️"
+            android:textSize="56sp"
+            android:layout_gravity="center_horizontal"
+            android:layout_marginTop="8dp"
+            android:layout_marginBottom="12dp"/>
+
+        <!-- Main Warning Card -->
+        <com.google.android.material.card.MaterialCardView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            app:cardCornerRadius="16dp"
+            app:cardElevation="4dp"
+            app:cardBackgroundColor="#FFFFFF"
+            android:layout_marginBottom="16dp">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:padding="24dp">
+
+                <!-- Risk Level Header -->
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:gravity="center_vertical"
+                    android:layout_marginBottom="16dp">
+
+                    <!-- Colored Accent Bar -->
+                    <View
+                        android:id="@+id/risk_accent_bar"
+                        android:layout_width="6dp"
+                        android:layout_height="48dp"
+                        android:background="#C62828"
+                        android:layout_marginEnd="16dp"/>
+
+                    <!-- Risk Level Text -->
+                    <TextView
+                        android:id="@+id/ai_risk_level"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="위험"
+                        android:textSize="36sp"
+                        android:textStyle="bold"
+                        android:textColor="#C62828"
+                        android:letterSpacing="0.02"/>
+
+                </LinearLayout>
+
+                <!-- Section Divider -->
+                <View
+                    android:layout_width="match_parent"
+                    android:layout_height="1dp"
+                    android:background="#E0E0E0"
+                    android:layout_marginBottom="20dp"/>
+
+                <!-- Keywords Section -->
+                <TextView
+                    android:id="@+id/warning_message"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="감지된 위험 키워드"
+                    android:textSize="14sp"
+                    android:textStyle="bold"
+                    android:textColor="#757575"
+                    android:letterSpacing="0.05"
+                    android:layout_marginBottom="12dp"/>
+
+                <TextView
+                    android:id="@+id/warning_keywords"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text=""
+                    android:textSize="16sp"
+                    android:textColor="#424242"
+                    android:lineSpacingExtra="6dp"
+                    android:layout_marginBottom="24dp"
+                    android:minHeight="40dp"/>
+
+                <!-- Reason Section -->
+                <TextView
+                    android:id="@+id/reason_label"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="위험 분석"
+                    android:textSize="14sp"
+                    android:textStyle="bold"
+                    android:textColor="#757575"
+                    android:letterSpacing="0.05"
+                    android:layout_marginBottom="12dp"
+                    android:visibility="gone"/>
+
+                <TextView
+                    android:id="@+id/reason_text"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text=""
+                    android:textSize="15sp"
+                    android:textColor="#424242"
+                    android:lineSpacingExtra="4dp"
+                    android:layout_marginBottom="24dp"
+                    android:visibility="gone"/>
+
+                <!-- Advice Section -->
+                <TextView
+                    android:id="@+id/advice_label"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="권장 사항"
+                    android:textSize="14sp"
+                    android:textStyle="bold"
+                    android:textColor="#757575"
+                    android:letterSpacing="0.05"
+                    android:layout_marginBottom="12dp"
+                    android:visibility="gone"/>
+
+                <TextView
+                    android:id="@+id/advice_text"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text=""
+                    android:textSize="15sp"
+                    android:textColor="#424242"
+                    android:lineSpacingExtra="4dp"
+                    android:visibility="gone"/>
+
+            </LinearLayout>
+
+        </com.google.android.material.card.MaterialCardView>
+
+        <!-- General Warning (for legacy mode) -->
+        <TextView
+            android:id="@+id/general_warning"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="피싱, 스캠, 또는 악성 콘텐츠일 수 있습니다.\n신중하게 확인하세요!"
+            android:textSize="14sp"
+            android:textColor="#757575"
             android:gravity="center"
-            android:padding="16dp"
-            android:background="#FFFFFF"
-            android:lineSpacingExtra="8dp"/>
+            android:layout_marginBottom="20dp"
+            android:visibility="gone"/>
+
+        </LinearLayout>
+
     </ScrollView>
 
-    <!-- Warning Advice -->
-    <TextView
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:text="피싱, 스캠, 또는 악성 콘텐츠일 수 있습니다.\n신중하게 확인하세요!"
-        android:textSize="14sp"
-        android:textColor="#616161"
-        android:gravity="center"
-        android:layout_marginBottom="24dp"/>
-
-    <!-- Close Button -->
+    <!-- Fixed Close Button at Bottom -->
     <Button
         android:id="@+id/btn_close_warning"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
+        android:layout_width="0dp"
+        android:layout_height="56dp"
         android:text="확인"
-        android:textSize="18sp"
+        android:textSize="16sp"
+        android:textStyle="bold"
         android:backgroundTint="#D32F2F"
         android:textColor="#FFFFFF"
-        android:padding="16dp"/>
+        android:layout_margin="20dp"
+        app:layout_constraintBottom_toBottomOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintEnd_toEndOf="parent"/>
 
-</LinearLayout>
+</androidx.constraintlayout.widget.ConstraintLayout>

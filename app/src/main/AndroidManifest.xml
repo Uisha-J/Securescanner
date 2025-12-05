@@ -39,7 +39,7 @@
         <activity
             android:name=".WarningActivity"
             android:exported="false"
-            android:theme="@style/Theme.AppCompat.Light.NoActionBar"
+            android:theme="@style/Theme.Securescanner"
             android:excludeFromRecents="true"
             android:launchMode="singleTop" />
 
