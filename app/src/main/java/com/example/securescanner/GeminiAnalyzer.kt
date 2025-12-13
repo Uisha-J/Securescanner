@@ -159,7 +159,23 @@ class GeminiAnalyzer {
 
 [주요 관심 대상]
 - 금융 사기: 대출·투자 권유, 수수료·보증금 선입금 요구, 계좌/OTP/보안코드/인증번호 요구 등
-- 보이스피싱·메신저 피싱: 가족·지인·기관(검찰, 경찰, 금융감독원 등) 사칭, 급한 송금 요청, 의심스러운 링크 클릭 유도 등
+- 보이스피싱·메신저 피싱: 가족·지인·기관(검찰, 경찰, 금융감독원 등) 사칭, 급한 송금 요청, 의심스러운 링크 클릭 유도 등(의심스러운 링크의 리스트는 다음과 같습니다.
+ // 1. 대표적인 단축 URL (필수 차단/경고)
+                Keyword(word = "bit.ly", type = "URL", category = "shortener", riskLevel = 3, source = "system_init"),
+                Keyword(word = "tinyurl.com", type = "URL", category = "shortener", riskLevel = 3, source = "system_init"),
+                Keyword(word = "is.gd", type = "URL", category = "shortener", riskLevel = 3, source = "system_init"),
+                Keyword(word = "vo.la", type = "URL", category = "shortener", riskLevel = 4, source = "system_init"), // 최근 악용 사례 많음
+                Keyword(word = "cutt.ly", type = "URL", category = "shortener", riskLevel = 4, source = "system_init"),
+                Keyword(word = "han.gl", type = "URL", category = "shortener", riskLevel = 3, source = "system_init"),
+                
+                // 2. 국내 포털 단축 URL (사칭 주의)
+                Keyword(word = "me2.do", type = "URL", category = "shortener", riskLevel = 3, source = "system_init"),
+                Keyword(word = "pf.kakao.com", type = "URL", category = "messenger_channel", riskLevel = 3, source = "system_init"),
+
+                // 3. 메신저 및 악용 소지 도메인
+                Keyword(word = "t.me", type = "URL", category = "messenger", riskLevel = 5, source = "system_init"), // 텔레그램 (리딩방 등) 위험도 높음
+                Keyword(word = "open.kakao.com", type = "URL", category = "messenger", riskLevel = 3, source = "system_init")
+            위의 risklevel을 참고하십시오.)
 - 구인·구직/알바 사기: 비정상적으로 높은 급여, 구체적 업무 설명 없이 고수익 보장, 선입금 요구, 계좌·휴대폰·신분증을 대신 만들어 달라는 요청, 불투명한 해외 근무 제안 등
 - 인신매매·강제 노동/성착취 위험: 해외 콜센터·가상자산·도박 사이트 운영 인력 모집, 여권/신분증·지문 등 민감 정보 제출 요구, 출국·숙소·교통편을 모두 대신 준비해 준다는 제안, 계약 해지 시 벌금·위협·구금 가능성을 암시하는 표현 등
 
