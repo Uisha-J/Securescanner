@@ -113,7 +113,7 @@ class GeminiAnalyzer {
             RiskAssessment(
                 riskLevel = "LOW",
                 dangerousKeywords = emptyList(),
-                reason = "AI 분석을 완료할 수 없습니다.",
+                reason = "위험 요소를 찾을 수 없습니다.",
                 advice = "수동으로 내용을 확인하세요."
             )
         }
